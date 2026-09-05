@@ -16,24 +16,29 @@ mvn clean package
 java -jar target/jasypt-pbe-console-1.0.0.jar [password=xxx] [algorithm=xxx] [iterations=xxx]
 ```
 
-All flags are optional and can appear in any order. If `password` is omitted, it will be prompted (input is **masked** when run in a real terminal).
+All flags are optional and can appear in any order. Argument values may contain `${ENV_VAR}` placeholders, which are resolved against environment variables at runtime (e.g. `password=${ENV_VAR_PASSWORD}`). An unresolvable placeholder is left verbatim, mirroring `jasypt-spring-boot-starter`.
+
+If `password` is omitted from the command line, it is read from the `ENV_VAR_PASSWORD` environment variable.
 
 ### Arguments
 
-| Flag         | Required | Default              | Description                      |
-|--------------|----------|----------------------|----------------------------------|
-| password=    | No       | (prompted, masked)   | Encryption/decryption password   |
-| algorithm=   | No       | `PBEWithMD5AndDES`   | PBE algorithm                    |
-| iterations=  | No       | `1000`               | Key obtention iterations         |
+| Flag         | Required | Default                                   | Description                      |
+|--------------|----------|-------------------------------------------|----------------------------------|
+| password=    | No       | `$ENV_VAR_PASSWORD`                       | Encryption/decryption password   |
+| algorithm=   | No       | `PBEWithMD5AndDES`                        | PBE algorithm                    |
+| iterations=  | No       | `1000`                                    | Key obtention iterations         |
 
 ### Examples
 
 ```bash
-# With all defaults (password will be prompted, input masked)
+# Password from the environment variable
 java -jar target/jasypt-pbe-console-1.0.0.jar
 
 # With password only
 java -jar target/jasypt-pbe-console-1.0.0.jar password=mySecretPassword
+
+# Password via a ${...} placeholder resolved against the environment
+java -jar target/jasypt-pbe-console-1.0.0.jar 'password=${ENV_VAR_PASSWORD}'
 
 # With all flags, any order
 java -jar target/jasypt-pbe-console-1.0.0.jar algorithm=PBEWithMD5AndDES password=mySecretPassword iterations=2000

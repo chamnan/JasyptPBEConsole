@@ -4,6 +4,8 @@ import org.jasypt.encryption.pbe.PooledPBEStringEncryptor;
 import org.jasypt.encryption.pbe.config.SimpleStringPBEConfig;
 
 import java.util.Scanner;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Interactive console application for string encryption and decryption
@@ -13,7 +15,10 @@ import java.util.Scanner;
  * <p>Build: {@code mvn clean package}
  *
  * <p>Usage: {@code java -jar target/jasypt-pbe-console-1.0.0.jar [password=xxx] [algorithm=xxx] [iterations=xxx]}
- *   <br>All flags are optional and can appear in any order. If {@code password} is omitted, it will be prompted.
+ *   <br>All flags are optional and can appear in any order. Argument values may contain {@code ${ENV_VAR}}
+ *   placeholders, which are resolved against environment variables at runtime (e.g.
+ *   {@code password=${ENV_VAR_PASSWORD}}). If the password is empty or a placeholder cannot be
+ *   resolved, the user is prompted for input.
  *
  * <p>Defaults: algorithm=PBEWithMD5AndDES (Password-Based Encryption), iterations=1000
  */
@@ -21,6 +26,7 @@ public class JasyptPBEConsole {
 
     private static final String DEFAULT_ALGORITHM = "PBEWithMD5AndDES";
     private static final int DEFAULT_ITERATIONS = 1000;
+    private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\$\\{([^}]+)}");
 
     public static void main(String[] args) {
         Scanner scanner = new Scanner(System.in);
@@ -32,12 +38,12 @@ public class JasyptPBEConsole {
 
         for (String arg : args) {
             if (arg.startsWith("password=")) {
-                password = arg.substring("password=".length());
+                password = resolvePlaceholders(arg.substring("password=".length()));
             } else if (arg.startsWith("algorithm=")) {
-                algorithm = arg.substring("algorithm=".length());
+                algorithm = resolvePlaceholders(arg.substring("algorithm=".length()));
             } else if (arg.startsWith("iterations=")) {
                 try {
-                    iterations = Integer.parseInt(arg.substring("iterations=".length()));
+                    iterations = Integer.parseInt(resolvePlaceholders(arg.substring("iterations=".length())));
                 } catch (NumberFormatException e) {
                     System.err.println("Invalid iterations value. Using default: " + DEFAULT_ITERATIONS);
                 }
@@ -46,7 +52,9 @@ public class JasyptPBEConsole {
             }
         }
 
-        if (password == null) {
+        // Dynamic fallback: if no password was given, or a ${ENV_VAR} placeholder
+        // could not be resolved, prompt the user for input.
+        if (password == null || password.isEmpty() || hasUnresolvedPlaceholder(password)) {
             password = promptPassword(scanner);
         }
 
@@ -92,6 +100,46 @@ public class JasyptPBEConsole {
                 default -> System.out.println("Invalid option. Please choose 1, 2, or 3.");
             }
         }
+    }
+
+    /**
+     * Resolves {@code ${ENV_VAR}} placeholders against environment variables.
+     * Unresolvable placeholders are left verbatim so callers can detect them.
+     */
+    private static String resolvePlaceholders(String value) {
+        if (value == null || value.isEmpty()) {
+            return value;
+        }
+        Matcher matcher = PLACEHOLDER_PATTERN.matcher(value);
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            String envValue = System.getenv(matcher.group(1));
+            String replacement = envValue != null ? envValue : matcher.group(0);
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(sb);
+        return sb.toString();
+    }
+
+    /**
+     * Returns true if the value still contains an unresolved {@code ${ENV_VAR}} placeholder.
+     */
+    private static boolean hasUnresolvedPlaceholder(String value) {
+        return value != null && PLACEHOLDER_PATTERN.matcher(value).find();
+    }
+
+    private static String promptPassword(Scanner scanner) {
+        java.io.Console console = System.console();
+        if (console != null) {
+            char[] chars = console.readPassword("Enter encryption password: ");
+            if (chars == null) {
+                return "";
+            }
+            return new String(chars);
+        }
+        // Fallback if no console available (e.g., piped input or IDE)
+        System.out.print("Enter encryption password: ");
+        return scanner.nextLine().trim();
     }
 
     private static void doEncrypt(PooledPBEStringEncryptor encryptor, Scanner scanner) {
@@ -145,17 +193,6 @@ public class JasyptPBEConsole {
             return input.substring(4, input.length() - 1);
         }
         return input;
-    }
-
-    private static String promptPassword(Scanner scanner) {
-        java.io.Console console = System.console();
-        if (console != null) {
-            char[] chars = console.readPassword("Enter encryption password: ");
-            return new String(chars);
-        }
-        // Fallback if no console available (e.g., piped input or IDE)
-        System.out.print("Enter encryption password: ");
-        return scanner.nextLine().trim();
     }
 
 }
