@@ -13,7 +13,7 @@ mvn clean package
 ## Usage
 
 ```bash
-java -jar target/jasypt-pbe-console-1.0.0.jar [password=xxx] [algorithm=xxx] [iterations=xxx]
+java -jar target/jasypt-pbe-console-1.0.0.jar [password=xxx] [algorithm=xxx] [iterations=xxx] [iv=random|none]
 ```
 
 All flags are optional and can appear in any order. Argument values may contain `${ENV_VAR}` placeholders, which are resolved against environment variables at runtime (e.g. `password=${ENV_VAR_PASSWORD}`). An unresolvable placeholder is left verbatim, mirroring `jasypt-spring-boot-starter`.
@@ -27,6 +27,11 @@ If `password` is omitted from the command line, it is read from the `ENV_VAR_PAS
 | password=    | No       | `$ENV_VAR_PASSWORD`                       | Encryption/decryption password   |
 | algorithm=   | No       | `PBEWithMD5AndDES`                        | PBE algorithm                    |
 | iterations=  | No       | `1000`                                    | Key obtention iterations         |
+| iv=          | No       | not set                                   | IV generator: `random` or `none` |
+
+When `iv` is not set, encryption uses `random` and decryption tries both `none` and `random`, printing both results. Only one is correct; the other fails or shows garbled text. Set `iv` to use a single mode for both.
+
+`none` is for values encrypted by jasypt 1.x or jasypt-spring-boot 2.x, which encrypted without an IV (`NoIvGenerator`). It matches `jasypt.encryptor.iv-generator-classname=org.jasypt.iv.NoIvGenerator` in Spring Boot. `random` is the jasypt-spring-boot 3.x default.
 
 ### Examples
 
@@ -45,6 +50,9 @@ java -jar target/jasypt-pbe-console-1.0.0.jar algorithm=PBEWithMD5AndDES passwor
 
 # Equivalent, different order
 java -jar target/jasypt-pbe-console-1.0.0.jar iterations=2000 password=mySecretPassword
+
+# Only use no IV, for values from jasypt 1.x / jasypt-spring-boot 2.x
+java -jar target/jasypt-pbe-console-1.0.0.jar password=mySecretPassword iv=none
 ```
 
 ### Interactive Menu
@@ -52,7 +60,7 @@ java -jar target/jasypt-pbe-console-1.0.0.jar iterations=2000 password=mySecretP
 Once started, choose from:
 
 1. **Encrypt a string** — outputs the encrypted value in both raw Base64 and `ENC(...)` wrapped formats
-2. **Decrypt a string** — accepts raw Base64 or `ENC(Base64)` format, outputs the original plaintext
+2. **Decrypt a string** — accepts raw Base64 or `ENC(Base64)` format, outputs the original plaintext (one result per IV mode when `iv` is not set)
 3. **Exit**
 
 ### Encryption Output
@@ -81,7 +89,7 @@ The encryptor configuration mirrors exactly what `jasypt-spring-boot-starter` cr
 
 - `PooledPBEStringEncryptor` with `SimpleStringPBEConfig`
 - `RandomSaltGenerator` for salt generation
-- `RandomIvGenerator` for IV generation
+- `RandomIvGenerator` for IV generation (the jasypt-spring-boot 3.x default; `iv=none` switches to `NoIvGenerator`, and decryption tries both when `iv` is not set)
 - `base64` string output type
 
 Encrypted values produced by this tool can be used directly in Spring Boot `application.properties` as `ENC(...)` values, and vice versa.
