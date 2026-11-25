@@ -63,6 +63,8 @@ Once started, choose from:
 2. **Decrypt a string** — accepts raw Base64 or `ENC(Base64)` format, outputs the original plaintext (one result per IV mode when `iv` is not set)
 3. **Exit**
 
+Input is read with [JLine](https://github.com/jline/jline3) in raw mode, so long values can be pasted. A plain terminal read in line mode caps a line at 1024 bytes on macOS, and anything longer cannot be submitted. Press Ctrl-D or Ctrl-C at any prompt to quit.
+
 ### Encryption Output
 
 When you encrypt a string, two formats are displayed:

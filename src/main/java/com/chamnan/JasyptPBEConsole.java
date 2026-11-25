@@ -3,9 +3,17 @@ package com.chamnan;
 import org.jasypt.encryption.pbe.PooledPBEStringEncryptor;
 import org.jasypt.encryption.pbe.config.SimpleStringPBEConfig;
 
+import org.jline.reader.EndOfFileException;
+import org.jline.reader.LineReader;
+import org.jline.reader.LineReaderBuilder;
+import org.jline.reader.UserInterruptException;
+import org.jline.reader.impl.DefaultParser;
+import org.jline.terminal.Terminal;
+import org.jline.terminal.TerminalBuilder;
+
+import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Scanner;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -35,8 +43,10 @@ public class JasyptPBEConsole {
     private static final String IV_RANDOM = "random";
     private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\$\\{([^}]+)}");
 
-    public static void main(String[] args) {
-        Scanner scanner = new Scanner(System.in);
+    /** Hides typed characters entirely (JLine shows nothing for a zero mask). */
+    private static final Character NO_ECHO = 0;
+
+    public static void main(String[] args) throws IOException {
         String password;
         String algorithm = DEFAULT_ALGORITHM;
         int iterations = DEFAULT_ITERATIONS;
@@ -70,9 +80,43 @@ public class JasyptPBEConsole {
 
         // Dynamic fallback: if no password was given, or a ${ENV_VAR} placeholder
         // could not be resolved, prompt the user for input.
-        if (password == null || password.isEmpty() || hasUnresolvedPlaceholder(password)) {
-            password = promptPassword(scanner);
+        try (Terminal terminal = TerminalBuilder.builder().system(true).dumb(true).build()) {
+            LineReader reader = buildReader(terminal);
+            try {
+                if (password == null || password.isEmpty() || hasUnresolvedPlaceholder(password)) {
+                    password = reader.readLine("Enter encryption password: ", NO_ECHO);
+                }
+                run(password, algorithm, iterations, iv, reader);
+            } catch (EndOfFileException | UserInterruptException e) {
+                // Ctrl-D / Ctrl-C / end of piped input
+                System.out.println();
+                System.out.println("Goodbye!");
+            }
         }
+    }
+
+    /**
+     * Reads lines with JLine, which puts the terminal in raw mode. A plain
+     * {@code Scanner(System.in)} reads through the tty's canonical mode, which on
+     * macOS caps a line at 1024 bytes (MAX_CANON): a longer pasted value cannot be
+     * submitted and the app appears to hang.
+     */
+    private static LineReader buildReader(Terminal terminal) {
+        // Return input exactly as typed: no multi-line continuation on quotes or a trailing backslash.
+        DefaultParser parser = new DefaultParser();
+        parser.setEofOnUnclosedQuote(false);
+        parser.setEofOnEscapedNewLine(false);
+        return LineReaderBuilder.builder()
+                .terminal(terminal)
+                .parser(parser)
+                .option(LineReader.Option.DISABLE_EVENT_EXPANSION, true) // keep '!' literal
+                .option(LineReader.Option.INSERT_TAB, true)
+                .option(LineReader.Option.HISTORY_IGNORE_SPACE, false)
+                .variable(LineReader.HISTORY_SIZE, 0) // don't keep plaintext/ciphertext in memory
+                .build();
+    }
+
+    private static void run(String password, String algorithm, int iterations, String iv, LineReader reader) {
 
         // Encrypt with the chosen IV mode (random if not set). Decrypt with the chosen
         // mode, or with both modes if not set, since a value from jasypt 1.x /
@@ -93,7 +137,7 @@ public class JasyptPBEConsole {
         System.out.println("IV        : " + (iv != null ? iv : "not set (encrypt: random, decrypt: none + random)"));
         System.out.println("==========================================");
 
-        runInteractiveLoop(encryptor, decryptors, scanner);
+        runInteractiveLoop(encryptor, decryptors, reader);
     }
 
     /**
@@ -118,7 +162,7 @@ public class JasyptPBEConsole {
 
     private static void runInteractiveLoop(PooledPBEStringEncryptor encryptor,
                                            Map<String, PooledPBEStringEncryptor> decryptors,
-                                           Scanner scanner) {
+                                           LineReader reader) {
 
         while (true) {
             System.out.println();
@@ -126,13 +170,12 @@ public class JasyptPBEConsole {
             System.out.println("  1. Encrypt a string");
             System.out.println("  2. Decrypt a string (raw or ENC(Base64))");
             System.out.println("  3. Exit");
-            System.out.print("> ");
 
-            String choice = scanner.nextLine().trim();
+            String choice = reader.readLine("> ").trim();
 
             switch (choice) {
-                case "1" -> doEncrypt(encryptor, scanner);
-                case "2" -> doDecrypt(decryptors, scanner);
+                case "1" -> doEncrypt(encryptor, reader);
+                case "2" -> doDecrypt(decryptors, reader);
                 case "3" -> {
                     System.out.println("Goodbye!");
                     return;
@@ -168,23 +211,8 @@ public class JasyptPBEConsole {
         return value != null && PLACEHOLDER_PATTERN.matcher(value).find();
     }
 
-    private static String promptPassword(Scanner scanner) {
-        java.io.Console console = System.console();
-        if (console != null) {
-            char[] chars = console.readPassword("Enter encryption password: ");
-            if (chars == null) {
-                return "";
-            }
-            return new String(chars);
-        }
-        // Fallback if no console available (e.g., piped input or IDE)
-        System.out.print("Enter encryption password: ");
-        return scanner.nextLine().trim();
-    }
-
-    private static void doEncrypt(PooledPBEStringEncryptor encryptor, Scanner scanner) {
-        System.out.print("Enter string to encrypt: ");
-        String plainText = scanner.nextLine();
+    private static void doEncrypt(PooledPBEStringEncryptor encryptor, LineReader reader) {
+        String plainText = reader.readLine("Enter string to encrypt: ");
 
         try {
             String encrypted = encryptor.encrypt(plainText);
@@ -199,9 +227,8 @@ public class JasyptPBEConsole {
         }
     }
 
-    private static void doDecrypt(Map<String, PooledPBEStringEncryptor> decryptors, Scanner scanner) {
-        System.out.print("Enter ciphertext (raw Base64 or ENC(Base64)): ");
-        String input = scanner.nextLine().trim();
+    private static void doDecrypt(Map<String, PooledPBEStringEncryptor> decryptors, LineReader reader) {
+        String input = reader.readLine("Enter ciphertext (raw Base64 or ENC(Base64)): ").trim();
 
         // Strip ENC() wrapper if present
         String encrypted = unwrapENC(input);
